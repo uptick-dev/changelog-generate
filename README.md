@@ -46,6 +46,8 @@ jobs:
 | `config` | `cliff.toml` | git-cliff config path (project-local). |
 | `fragments-dir` | `changelog` | Directory the fragment is written to. |
 | `git-cliff-version` | `2.12.0` | Version of the prebuilt git-cliff binary to install. |
+| `record-bump` | `"false"` | Write `<!-- bump: patch\|minor\|major (computed) -->` into the fragment for `changelog-merge`'s semver output (see below). |
+| `base-sha` | `${{ github.event.pull_request.base.sha }}` | Commit the PR's commits are counted from for the bump. |
 | `commit` | `"true"` | Commit and push the fragment to the PR branch. |
 | `commit-message` | `Generating changelog fragment` | Commit message. |
 
@@ -54,12 +56,24 @@ jobs:
 | Name | Description |
 | --- | --- |
 | `fragment-path` | Path to this PR's fragment file. |
+| `bump` | The fragment's bump, when `record-bump` is on. |
+| `pushed` | `'true'` if this run pushed to the PR branch (new fragment or changed bump line). That push starts a new run, so callers can skip the rest of this one. |
 | `created` | `'true'` if a new fragment was generated, `'false'` if it already existed. |
+
+## Recording the semver bump
+
+With `record-bump: true`, the PR's commits (`base-sha..HEAD`, merges skipped)
+and title decide the bump: `!` after the type or a `BREAKING CHANGE:` footer is
+`major`, `feat:` is `minor`, anything else is `patch`. The line is written under
+the title comment as `<!-- bump: minor (computed) -->` and recomputed on every
+push, so later commits still count. To override it, edit the line in the PR and
+drop `(computed)`, e.g. `<!-- bump: patch -->`; that line is then kept.
 
 ## Notes
 
 - **Idempotent.** If the fragment already exists (e.g. a later push to the same
-  PR), it is left untouched, so manual edits to it survive.
+  PR), it is left untouched, so manual edits to it survive (only a computed bump
+  line is updated).
 - **Fork PRs.** When the `CHANGELOG_TOKEN` secret is unavailable (PRs from forks),
   the commit step is best-effort — it cannot push to the fork. Keep the
   fork-aware `actions/checkout` in the caller (as shown) rather than inside the

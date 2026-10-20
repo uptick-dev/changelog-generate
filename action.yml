@@ -38,6 +38,18 @@ inputs:
       the fork, so the base branch is fetched from here instead.
     required: false
     default: ${{ github.repository }}
+  record-bump:
+    description: >-
+      Write a "<!-- bump: patch|minor|major (computed) -->" line into the
+      fragment, computed from the PR's conventional commits and title, for
+      changelog-merge's semver output. Recomputed on every push; a bump line
+      without "(computed)" is a manual override and is kept.
+    required: false
+    default: "false"
+  base-sha:
+    description: Commit the PR's commits are counted from when computing the bump.
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
   commit:
     description: Whether to commit and push the generated fragment.
     required: false
@@ -54,6 +66,15 @@ outputs:
   created:
     description: "'true' if a new fragment was generated, 'false' if it already existed."
     value: ${{ steps.paths.outputs.exists == 'false' }}
+  bump:
+    description: The fragment's bump (patch, minor or major) when record-bump is on.
+    value: ${{ steps.bump.outputs.bump }}
+  pushed:
+    description: >-
+      'true' if this run committed and pushed to the PR branch (a new fragment
+      or a changed bump line). The push starts a fresh run, so callers can skip
+      the rest of this one.
+    value: ${{ steps.commit.outputs.pushed == 'true' }}
 
 runs:
   using: composite
@@ -118,9 +139,66 @@ runs:
         TMP_FILE="$(mktemp)"
         awk -v title="$PR_TITLE" '{print} /^## \[Unreleased\]/{print "<!-- title: " title " -->"}' "$FRAGMENT" > "$TMP_FILE" && mv "$TMP_FILE" "$FRAGMENT"
 
+    - name: Record the semver bump in the changelog fragment
+      id: bump
+      if: inputs.record-bump == 'true'
+      shell: bash
+      env:
+        FRAGMENT: ${{ steps.paths.outputs.fragment-path }}
+        PR_TITLE: ${{ inputs.pr-title }}
+        BASE_SHA: ${{ inputs.base-sha }}
+      run: |
+        set -euo pipefail
+        BEFORE="$(grep '^<!-- bump:' "$FRAGMENT" || true)"
+
+        # A bump line without "(computed)" was set in the PR to override the computed one, so keep it.
+        if printf '%s\n' "$BEFORE" | grep -Eq '^<!-- bump: (patch|minor|major) -->$'; then
+          echo "Keeping the override $BEFORE"
+          echo "bump=$(printf '%s' "$BEFORE" | sed -E 's/^<!-- bump: ([a-z]+) -->$/\1/')" >> "$GITHUB_OUTPUT"
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [ -z "$BASE_SHA" ]; then
+          echo "::error::record-bump needs base-sha (not a pull_request event?)."
+          exit 1
+        fi
+
+        # Recompute on every push, so commits added after the first run still count.
+        # Collect the messages in a file first, so a failed git log fails the step
+        # instead of computing from the title alone.
+        MESSAGES="$(mktemp)"
+        git log --no-merges --format='%B%x00' "$BASE_SHA..HEAD" > "$MESSAGES"
+        printf '%s\0' "$PR_TITLE" >> "$MESSAGES"
+        BUMP="$(node "$GITHUB_ACTION_PATH/bump.js" < "$MESSAGES")"
+        echo "Computed bump: $BUMP"
+        echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+        export BUMP_LINE="<!-- bump: $BUMP (computed) -->"
+        TMP_FILE="$(mktemp)"
+
+        if [ -n "$BEFORE" ]; then
+          # Replace the previously computed line.
+          awk '/^<!-- bump:/ {print ENVIRON["BUMP_LINE"]; next} {print}' "$FRAGMENT" > "$TMP_FILE" && mv "$TMP_FILE" "$FRAGMENT"
+        else
+          # Write it under the title line, or under the Unreleased heading when the fragment has no title.
+          if grep -q '^<!-- title:' "$FRAGMENT"; then
+            export ANCHOR='^<!-- title:'
+          else
+            export ANCHOR='^## \[Unreleased\]'
+          fi
+          awk '{print} !done && $0 ~ ENVIRON["ANCHOR"] {print ENVIRON["BUMP_LINE"]; done=1}' "$FRAGMENT" > "$TMP_FILE" && mv "$TMP_FILE" "$FRAGMENT"
+        fi
+
+        if [ "$BEFORE" = "$BUMP_LINE" ]; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Commit and push changelog fragment
-      if: steps.paths.outputs.exists == 'false' && inputs.commit == 'true'
-      uses: EndBug/add-and-commit@v9
+      id: commit
+      if: (steps.paths.outputs.exists == 'false' || steps.bump.outputs.changed == 'true') && inputs.commit == 'true'
+      uses: EndBug/add-and-commit@cc9c08ba6c8df3b93a8f2db63e89b98368ae2ae8 # v11.1.1
       with:
         add: ${{ steps.paths.outputs.fragment-path }}
         message: ${{ inputs.commit-message }}

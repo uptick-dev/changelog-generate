@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.CHANGELOG_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - uses: ten-thousand-hammers/changelog-generate@v1
+      - uses: uptick-dev/changelog-generate@v1
         with:
           pr-number: ${{ github.event.pull_request.number }}
           pr-title: ${{ github.event.pull_request.title }}
@@ -67,6 +67,6 @@ jobs:
 - The PR title is passed to `awk` via an environment variable, never interpolated
   into the shell, to avoid script injection from crafted PR titles.
 - git-cliff is installed via
-  [`setup-git-cliff`](https://github.com/ten-thousand-hammers/setup-git-cliff) — a
+  [`setup-git-cliff`](https://github.com/uptick-dev/setup-git-cliff) — a
   pinned, **prebuilt** binary (no Rust build, no Dependabot pinning fights),
   controlled by the `git-cliff-version` input.

@@ -76,7 +76,7 @@ runs:
 
     - name: Install git-cliff
       if: steps.paths.outputs.exists == 'false'
-      uses: ten-thousand-hammers/setup-git-cliff@v1
+      uses: uptick-dev/setup-git-cliff@v1
       with:
         version: ${{ inputs.git-cliff-version }}
 

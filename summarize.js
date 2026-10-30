@@ -100,6 +100,15 @@ function sectionNames(sections) {
   return [...new Set([...visible, BEHIND_THE_SCENES])];
 }
 
+// The bullet text as written into the fragment; empty means the entry is dropped.
+function cleanText(text) {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/^[-*]\s*/, "")
+    .replace(/^behind the scenes:\s*/i, "")
+    .trim();
+}
+
 // Rebuilds the fragment: breaking items first, then the rewritten entries, in
 // section order with behind the scenes last. Sections left empty are dropped,
 // but every section is visited so breaking items in technical ones survive.
@@ -110,13 +119,7 @@ function buildFragment({ preamble, sections }, entries) {
     const kept = items.filter((item) => item.includes(BREAKING_MARKER));
     const written = entries
       .filter((entry) => entry.section === heading)
-      .map((entry) =>
-        entry.text
-          .replace(/\s+/g, " ")
-          .replace(/^[-*]\s*/, "")
-          .replace(/^behind the scenes:\s*/i, "")
-          .trim()
-      )
+      .map((entry) => cleanText(entry.text))
       .filter(Boolean);
     const lines = [...kept, ...written];
     if (lines.length === 0) continue;
@@ -147,7 +150,8 @@ async function summarize({ client, model, fragment, title, body }) {
   const text = response.content.find((block) => block.type === "text")?.text;
   const { entries } = JSON.parse(text);
   // An empty answer would leave the PR out of the release notes entirely.
-  if (!entries.some((entry) => entry.text.trim())) {
+  // Checked after the same cleanup as rendering, so "-" or a bare prefix counts as empty.
+  if (!entries.some((entry) => cleanText(entry.text))) {
     throw new Error("model returned no entries");
   }
   return { fragment: buildFragment(parsed, entries) };

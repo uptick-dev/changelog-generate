@@ -94,7 +94,11 @@ test("buildFragment keeps breaking items in technical sections", () => {
 });
 
 test("summarize throws on an empty answer, so the PR is never left out", async () => {
-  const client = fakeClient([{ section: "🚀 Added", text: " " }]);
+  const client = fakeClient([
+    { section: "🚀 Added", text: " " },
+    { section: "🚀 Added", text: "-" },
+    { section: BEHIND_THE_SCENES, text: "Behind the scenes:" },
+  ]);
   await assert.rejects(summarize({ client, model: "m", fragment: FRAGMENT, title: "", body: "" }), /no entries/);
 });
 

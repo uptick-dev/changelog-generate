@@ -51,6 +51,7 @@ jobs:
 | `summarize` | `"false"` | Rewrite the new fragment's bullets in plain language with Claude (see below). |
 | `anthropic-api-key` | `""` | Anthropic API key; required when `summarize` is on. |
 | `summarize-model` | `claude-haiku-5-5` | Claude model used to summarize. |
+| `story-url` | `""` | Link template for Shortcut story ids, with `{id}` for the number. Empty writes plain `sc-123`. |
 | `pr-body` | `${{ github.event.pull_request.body }}` | PR description, given to the model as context. |
 | `commit` | `"true"` | Commit and push the fragment to the PR branch. |
 | `commit-message` | `Generating changelog fragment` | Commit message. |
@@ -86,6 +87,11 @@ gets at least one line, and an empty answer keeps the git-cliff fragment, so
 no PR drops out of the notes. Visible changes stay in the fragment's own `###`
 sections, and `[**breaking**]` items are kept word for word for
 `changelog-merge`'s breaking-changes list.
+
+Shortcut story ids (`sc-123`, `[sc-123]`, `sc 123` or a story link) found in
+the PR title or commits are added back after the rewrite, at the end of each
+line, linked through `story-url` when it is set:
+`- Offer copy can now show the logo inline. [sc-5864](https://…/story/5864)`.
 
 It runs once, when the fragment is created, so the rewritten text shows in
 the PR diff and can be edited before merge like any fragment. A missing key,

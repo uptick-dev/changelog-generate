@@ -109,10 +109,27 @@ function cleanText(text) {
     .trim();
 }
 
+// Shortcut story ids in the PR title and git-cliff's bullets: "sc-123", "[sc-123]",
+// "sc 123", or a story link. The model drops them, so they are added back after it.
+function storyIds(title, sections) {
+  const text = [title || "", ...[...sections.values()].flat()].join("\n");
+  const ids = [...text.matchAll(/\bsc[- ](\d+)\b|shortcut\.com\/[^/\s]+\/story\/(\d+)/gi)].map(
+    (match) => match[1] || match[2]
+  );
+  return [...new Set(ids)];
+}
+
+// " [sc-123](url)" for each id, or plain " sc-123" when no url template is given.
+function storyRefs(ids, urlTemplate) {
+  return ids
+    .map((id) => (urlTemplate ? ` [sc-${id}](${urlTemplate.replace("{id}", id)})` : ` sc-${id}`))
+    .join("");
+}
+
 // Rebuilds the fragment: breaking items first, then the rewritten entries, in
 // section order with behind the scenes last. Sections left empty are dropped,
 // but every section is visited so breaking items in technical ones survive.
-function buildFragment({ preamble, sections }, entries) {
+function buildFragment({ preamble, sections }, entries, refs = "") {
   let output = preamble.join("\n") + "\n";
   for (const heading of new Set([...sections.keys(), BEHIND_THE_SCENES])) {
     const items = sections.get(heading) || [];
@@ -120,7 +137,8 @@ function buildFragment({ preamble, sections }, entries) {
     const written = entries
       .filter((entry) => entry.section === heading)
       .map((entry) => cleanText(entry.text))
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((text) => text + refs);
     const lines = [...kept, ...written];
     if (lines.length === 0) continue;
     output += `\n### ${heading}\n${lines.map((l) => `- ${l}`).join("\n")}\n`;
@@ -128,7 +146,7 @@ function buildFragment({ preamble, sections }, entries) {
   return output;
 }
 
-async function summarize({ client, model, fragment, title, body }) {
+async function summarize({ client, model, fragment, title, body, storyUrl }) {
   const parsed = parseFragment(fragment);
   const prompt = buildPrompt({ title, body, sections: parsed.sections });
   if (!prompt) return { fragment, reason: "no bullets to rewrite" };
@@ -154,7 +172,8 @@ async function summarize({ client, model, fragment, title, body }) {
   if (!entries.some((entry) => cleanText(entry.text))) {
     throw new Error("model returned no entries");
   }
-  return { fragment: buildFragment(parsed, entries) };
+  const refs = storyRefs(storyIds(title, parsed.sections), storyUrl);
+  return { fragment: buildFragment(parsed, entries, refs) };
 }
 
 // CLI: rewrites $FRAGMENT in place. Warns and exits 0 on any failure, so a
@@ -169,6 +188,7 @@ async function main() {
       model: process.env.MODEL,
       fragment: fs.readFileSync(path, "utf-8"),
       title: process.env.PR_TITLE,
+      storyUrl: process.env.STORY_URL,
       body: process.env.PR_BODY,
     });
     if (result.reason) {
@@ -185,5 +205,14 @@ async function main() {
 if (require.main === module) {
   main();
 } else {
-  module.exports = { BREAKING_MARKER, BEHIND_THE_SCENES, parseFragment, buildPrompt, buildFragment, summarize };
+  module.exports = {
+    BREAKING_MARKER,
+    BEHIND_THE_SCENES,
+    parseFragment,
+    buildPrompt,
+    buildFragment,
+    storyIds,
+    storyRefs,
+    summarize,
+  };
 }

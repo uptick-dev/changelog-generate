@@ -50,6 +50,33 @@ inputs:
     description: Commit the PR's commits are counted from when computing the bump.
     required: false
     default: ${{ github.event.pull_request.base.sha }}
+  summarize:
+    description: >-
+      Rewrite the new fragment's commit bullets with Claude into a few
+      plain-language lines for a non-technical team. Breaking items are kept
+      as written. Any failure keeps the git-cliff fragment, with a warning.
+    required: false
+    default: "false"
+  anthropic-api-key:
+    description: Anthropic API key, required when summarize is on.
+    required: false
+    default: ""
+  summarize-model:
+    description: Claude model used to summarize.
+    required: false
+    default: claude-haiku-5-5
+  story-url:
+    description: >-
+      Link template for Shortcut story ids when summarizing, with {id} for the
+      number (e.g. https://app.shortcut.com/your-workspace/story/{id}). Ids
+      from the PR title and commits are added to the end of each summarized
+      line. Empty writes them as plain "sc-123".
+    required: false
+    default: ""
+  pr-body:
+    description: Pull request description, given to the model as context when summarizing.
+    required: false
+    default: ${{ github.event.pull_request.body }}
   commit:
     description: Whether to commit and push the generated fragment.
     required: false
@@ -128,6 +155,28 @@ runs:
           echo "::warning::Could not find where HEAD branched from $BASE_REPOSITORY@$BASE_REF (shallow checkout or no access?); the fragment covers every commit since the last tag instead."
           git-cliff --config "$CONFIG" --unreleased -o "$OUTPUT"
         fi
+
+    # Runs before the title and bump lines are added, so the model sees only git-cliff's output.
+    - name: Summarize changelog fragment
+      if: steps.paths.outputs.exists == 'false' && inputs.summarize == 'true'
+      shell: bash
+      env:
+        FRAGMENT: ${{ steps.paths.outputs.fragment-path }}
+        PR_TITLE: ${{ inputs.pr-title }}
+        PR_BODY: ${{ inputs.pr-body }}
+        MODEL: ${{ inputs.summarize-model }}
+        STORY_URL: ${{ inputs.story-url }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        if [ -z "$ANTHROPIC_API_KEY" ]; then
+          echo "::warning::summarize is on but anthropic-api-key is empty; keeping the git-cliff fragment."
+          exit 0
+        fi
+        npm ci --omit=dev --silent --prefix "$GITHUB_ACTION_PATH" || {
+          echo "::warning::Could not install the summarize dependencies; keeping the git-cliff fragment."
+          exit 0
+        }
+        node "$GITHUB_ACTION_PATH/summarize.js"
 
     - name: Add PR title to changelog fragment
       if: steps.paths.outputs.exists == 'false' && inputs.pr-title != ''

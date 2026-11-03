@@ -48,6 +48,11 @@ jobs:
 | `git-cliff-version` | `2.12.0` | Version of the prebuilt git-cliff binary to install. |
 | `record-bump` | `"false"` | Write `<!-- bump: patch\|minor\|major (computed) -->` into the fragment for `changelog-merge`'s semver output (see below). |
 | `base-sha` | `${{ github.event.pull_request.base.sha }}` | Commit the PR's commits are counted from for the bump. |
+| `summarize` | `"false"` | Rewrite the new fragment's bullets in plain language with Claude (see below). |
+| `anthropic-api-key` | `""` | Anthropic API key; required when `summarize` is on. |
+| `summarize-model` | `claude-haiku-5-5` | Claude model used to summarize. |
+| `story-url` | `""` | Link template for Shortcut story ids, with `{id}` for the number. Empty writes plain `sc-123`. |
+| `pr-body` | `${{ github.event.pull_request.body }}` | PR description, given to the model as context. |
 | `commit` | `"true"` | Commit and push the fragment to the PR branch. |
 | `commit-message` | `Generating changelog fragment` | Commit message. |
 
@@ -68,6 +73,39 @@ and title decide the bump: `!` after the type or a `BREAKING CHANGE:` footer is
 the title comment as `<!-- bump: minor (computed) -->` and recomputed on every
 push, so later commits still count. To override it, edit the line in the PR and
 drop `(computed)`, e.g. `<!-- bump: patch -->`; that line is then kept.
+
+## Summarizing for a non-technical team
+
+With `summarize: true`, git-cliff's one-bullet-per-commit output is sent to
+Claude with the PR title and description, and replaced with the fewest
+plain-language bullets that say what changed for people outside engineering.
+Work with no visible change (refactors, upgrades, security patches) goes in a
+`### 🔧 Behind the scenes` section that says why it matters. Work that only
+affects engineers' own tools (local development, CI, tests) is left out, and so
+is behind-the-scenes work in a PR that also has visible changes. Every PR still
+gets at least one line, and an empty answer keeps the git-cliff fragment, so
+no PR drops out of the notes. Visible changes stay in the fragment's own `###`
+sections, and `[**breaking**]` items are kept word for word for
+`changelog-merge`'s breaking-changes list.
+
+Shortcut story ids (`sc-123`, `[sc-123]`, `sc 123` or a story link) found in
+the PR title or commits are added back after the rewrite, at the end of each
+line, linked through `story-url` when it is set:
+`- Offer copy can now show the logo inline. [sc-5864](https://…/story/5864)`.
+
+It runs once, when the fragment is created, so the rewritten text shows in
+the PR diff and can be edited before merge like any fragment. A missing key,
+an API error or an unexpected answer keeps the git-cliff fragment and logs a
+warning; it never fails the job.
+
+```yaml
+      - uses: uptick-dev/changelog-generate@v1
+        with:
+          pr-number: ${{ github.event.pull_request.number }}
+          pr-title: ${{ github.event.pull_request.title }}
+          summarize: true
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
 
 ## Notes
 
